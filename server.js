@@ -9,14 +9,16 @@ const io = new Server(server, {
 });
 
 io.on('connection', (socket) => {
-    console.log('Bağlantı:', socket.id);
+    // Bağlantı Logu
+    // console.log('Yeni Socket Bağlantısı:', socket.id); 
 
-    // GÜNCELLENDİ: Artık nick bilgisini de alıyoruz
     socket.on('join_room', ({ roomId, nick }) => {
         socket.join(roomId);
-        socket.nickname = nick; // Nicki sokete kaydet
+        socket.nickname = nick; 
         
-        // Odadaki diğer kişileri bul
+        // LOG: Katılma
+        console.log(`[KATILDI] ${nick} (${socket.id}) -> Oda: ${roomId}`);
+
         const clients = io.sockets.adapter.rooms.get(roomId);
         const otherUsers = [];
         
@@ -32,14 +34,27 @@ io.on('connection', (socket) => {
             });
         }
 
-        // 1. Katılan kişiye odadakilerin listesini gönder
         socket.emit('all_users', otherUsers);
-
-        // 2. Odadakilere "Yeni biri geldi" de (Nick ile)
         socket.to(roomId).emit('user_joined', { id: socket.id, nick: nick });
     });
 
-    // WebRTC Sinyalleri (Değişmedi)
+    // --- YENİ EKLENEN: MİKROFON LOGU ---
+    socket.on('mic_status', ({ roomId, isMuted }) => {
+        const status = isMuted ? "KAPATTI (MUTE)" : "AÇTI (UNMUTE)";
+        console.log(`[MİKROFON] ${socket.nickname || 'Bilinmiyor'} -> ${status}`);
+        
+        // İsterseniz odadaki diğer kişilere de bildirebilirsiniz (ikon değişimi için)
+        // socket.to(roomId).emit('user_mic_change', { id: socket.id, isMuted: isMuted });
+    });
+
+    // --- YENİ EKLENEN: AYRILMA LOGU (Manuel Çıkış) ---
+    socket.on('leave_room', ({ roomId }) => {
+        console.log(`[AYRILDI] ${socket.nickname || 'Bilinmiyor'} -> Oda: ${roomId}`);
+        socket.leave(roomId);
+        socket.to(roomId).emit('user_left', { id: socket.id });
+    });
+
+    // WebRTC Sinyalleri
     socket.on('offer', (data) => {
         io.to(data.target).emit('offer', { sdp: data.sdp, caller: socket.id });
     });
@@ -52,11 +67,13 @@ io.on('connection', (socket) => {
         io.to(data.target).emit('ice_candidate', { candidate: data.candidate, sender: socket.id });
     });
 
-    // Ayrılma Durumu
+    // Bağlantı Kopması (Otomatik Çıkış)
     socket.on('disconnecting', () => {
-        // Hangi odalardaysa oradakilere haber ver
         for (const room of socket.rooms) {
-            socket.to(room).emit('user_left', { id: socket.id });
+            if (room !== socket.id) {
+                console.log(`[KOPTU] ${socket.nickname || 'Bilinmiyor'} -> Oda: ${room}`);
+                socket.to(room).emit('user_left', { id: socket.id });
+            }
         }
     });
 });
